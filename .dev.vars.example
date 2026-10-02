@@ -1,0 +1,88 @@
+# Example variables for local development only (copy to .dev.vars for `wrangler dev`).
+#
+# NEVER put a real Canvas token, a real confirmation secret or any other real secret
+# in .dev.vars or .env. Some bundlers copy those files into the build output, and the
+# Sites checkpoint uploads the build output. Every value below is an obvious fake.
+#
+# - On the deployed Site, secrets are entered in the Site settings UI (marked secret),
+#   never through Codex chat and never in a file in this repository.
+# - Local tests use fake credentials; do not create a real-token parity file.
+# - `npm run build` fails if a .dev.vars* or .env* file, or anything shaped like a
+#   Canvas token, ends up under dist/.
+
+# --- Canvas (secret-class) ---
+# Must be https. Normalized to https://<host>/api/v1.
+CANVAS_API_URL=https://canvas.example.edu
+# Required; forbidden when DIAGNOSTICS_ENABLED=true.
+CANVAS_API_TOKEN=FAKE-TOKEN-do-not-put-a-real-one-here
+
+# --- Who may use this deployment (secret-class) ---
+# Optional compatibility setting; owner is the only supported mode.
+AUTH_MODE=owner
+# The Site owner's ChatGPT account email. Required in owner mode.
+OWNER_EMAIL=owner@example.edu
+# Optional: SHA-256 (64 hex) of the owner's gateway user id, as printed by the
+# sites_diagnostics headers probe. Enforced only when the id header is present.
+# OWNER_USER_ID_SHA256=0000000000000000000000000000000000000000000000000000000000000000
+
+# --- Other secrets ---
+# At least 32 characters. Without it, tools that need a confirmation token are not registered.
+CONFIRMATION_SECRET=FAKE-confirmation-secret-placeholder-0000
+# Optional salt for student pseudonyms.
+PSEUDONYM_SALT=FAKE-pseudonym-salt-placeholder
+
+# --- MCP endpoint ---
+MCP_SERVER_NAME=canvas-api
+MCP_PATH=/mcp
+# sdk or native
+MCP_BACKEND=sdk
+
+# --- Tool policy ---
+# student, educator or all
+CANVAS_ROLE=student
+# Unset = read-only. "none", "all", or a comma list of write tool names.
+# ALLOWED_WRITE_TOOLS=none
+# Any of: submit_assignment, comment_on_my_submission, mark_module_item_done
+STUDENT_WRITE_TOOLS=
+# Tool names to remove, whatever their effect.
+DISABLED_TOOLS=
+ACCESSIBILITY_CHECKERS=ufixit
+COURSE_AGENT_POLICY_ENABLED=true
+COURSE_AGENT_POLICY_DEFAULT=deny
+COURSE_AGENT_POLICY_ALLOW_TTL=30
+COURSE_AGENT_POLICY_DENY_TTL=300
+
+# --- Privacy and logging ---
+# These two accept only true or false. Any other value refuses every request,
+# so that a typo cannot switch a privacy protection off.
+ENABLE_DATA_ANONYMIZATION=true
+LOG_REDACT_PII=true
+LOG_ACCESS_EVENTS=true
+# debug, info, warn or error
+LOG_LEVEL=info
+AUDIT_TO_D1=true
+
+# --- Display ---
+TIMEZONE=UTC
+INSTITUTION_NAME=Example University
+
+# --- Limits ---
+# Seconds per Canvas request.
+API_TIMEOUT=15
+MAX_CONCURRENT_REQUESTS=3
+READ_FILE_MAX_SIZE_MB=5
+CANVAS_REQUEST_BUDGET=40
+CANVAS_MAX_PAGES=10
+TOOL_DEADLINE_MS=25000
+MAX_TOOL_RESULT_BYTES=200000
+MAX_REQUEST_BYTES=1048576
+MAX_UPLOAD_MB=5
+MAX_BULK_ITEMS=20
+
+# --- Operations ---
+# Comma list of hostnames this deployment answers on. Empty = any.
+ALLOWED_HOSTS=
+# Milestone 0 spike only. Refused while CANVAS_API_TOKEN or CONFIRMATION_SECRET is set.
+DIAGNOSTICS_ENABLED=false
+EXPORTS_ENABLED=false
+DB_BOOTSTRAP=true

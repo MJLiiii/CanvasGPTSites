@@ -1,0 +1,10 @@
+canvas-gpt-sites is a TypeScript port of canvas-mcp for hosting on ChatGPT Sites.
+
+Portions derived from canvas-mcp (https://github.com/vishalsachdev/canvas-mcp),
+Copyright (c) 2025 Vishal Sachdev, MIT License. Tool names, descriptions, output
+wording and the security design (anonymization tiers, untrusted-content fencing,
+confirmation tokens, write allowlist) follow upstream v1.13.0
+(commit 14fb51d0b1337707867494213e59509453bf5558).
+
+This project is not affiliated with or endorsed by the upstream authors or by
+Instructure.
