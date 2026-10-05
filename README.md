@@ -1,5 +1,18 @@
 # CanvasGPTSites
 
+Copy this prompt into a Sites-enabled chat:
+
+```text
+Deploy https://github.com/MJLiiii/CanvasGPTSites to ChatGPT Sites
+with its private Canvas Plugin.
+Follow README.md and AGENTS.md; keep it single-owner and read-only.
+Complete the setup, tests, build, and deployment. Guide me to enter my owner
+email and Canvas secrets in Site Settings, then install and connect the
+Plugin. Verify a read-only Canvas call after connection.
+```
+
+If the agent cannot access GitHub, attach the source or open it in Codex. You enter credentials and connect the Plugin yourself; technical steps are documented under [Development](#development).
+
 A private Canvas integration for ChatGPT and Codex, hosted on ChatGPT Sites. This TypeScript port of [canvas-mcp](https://github.com/vishalsachdev/canvas-mcp) runs as a Cloudflare Worker and exposes Canvas tools through the Site's private Plugin.
 
 The current release is **read-only and single-owner**. One owner can connect multiple Canvas instances, with a custom name, URL, and token for each institution.
@@ -39,24 +52,11 @@ Open this repository in Codex, or provide the complete source repository to a Ch
 
 | Step | You | GPT Sites / Codex |
 | --- | --- | --- |
-| Provide source | Open or attach the repository and paste the prompt below. | Inspect the current source and repository instructions. |
+| Provide source | Paste the prompt at the top of this README, or open or attach the repository. | Inspect the current source and repository instructions. |
 | Prepare deployment | You can run the developer commands yourself if preferred. | Validate the source, create the official Site scaffold, and synchronize the application. |
 | Register and publish | Choose the intended account or workspace. | Use Sites tools to register the project, build, save a version, and deploy privately. |
 | Configure Canvas | Enter your owner email, Canvas URLs, and tokens in Site Settings. | Provide the settings location and required key names. |
 | Connect the Plugin | Install it, sign in, and approve the connection. | Provide the Site's private Plugin and verify a read-only call after connection. |
-
-### Copy-and-paste deployment prompt
-
-Paste this prompt into a Sites-enabled chat. If the agent cannot access GitHub, attach the source or open it in Codex. Technical steps are documented under Development below; you enter credentials and connect the Plugin yourself.
-
-```text
-Deploy https://github.com/MJLiiii/CanvasGPTSites to ChatGPT Sites
-with its private Canvas Plugin.
-Follow README.md and AGENTS.md; keep it single-owner and read-only.
-Complete the setup, tests, build, and deployment. Guide me to enter my owner
-email and Canvas secrets in Site Settings, then install and connect the
-Plugin. Verify a read-only Canvas call after connection.
-```
 
 ### Enter your configuration
 
