@@ -6,7 +6,7 @@ import type { Params } from '../types';
 import { READ_ONLY, field, ownRoles, record } from './read-helpers';
 
 export const getMyProfile = defineTool({
-  name: 'get_my_profile', title: 'Get my profile', module: 'self_identity', role: 'shared', effect: 'read',
+  name: 'get_my_profile', title: 'Get my profile', module: 'self_identity', role: 'shared', effect: 'read', canvasScope: 'aggregate',
   description: `Get YOUR own Canvas identity (user ID, name, login ID).
 
 Answers "who am I?" — useful when a tool needs your Canvas user ID or
@@ -24,7 +24,7 @@ NetID. Reports only your own record, never anybody else's.`,
 });
 
 export const getMyEnrollments = defineTool({
-  name: 'get_my_enrollments', title: 'Get my enrollments', module: 'self_identity', role: 'shared', effect: 'read',
+  name: 'get_my_enrollments', title: 'Get my enrollments', module: 'self_identity', role: 'shared', effect: 'read', canvasScope: 'aggregate',
   description: `List the courses YOU are enrolled in, with your role in each.
 
 Use this — not check_enrollment — for any question about your own

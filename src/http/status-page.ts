@@ -57,6 +57,7 @@ export interface StatusReport {
   /** Names and yes/no only. */
   settings: Array<{ name: string; required: boolean; present: boolean }>;
   canvas_host: string | null;
+  canvas_connections: Array<{ id: string; name: string; host: string | null; token_present: boolean; available: boolean; errors: string[] }>;
   tools: {
     count: number;
     registered: Array<{ name: string; module: string; effect: string }>;
@@ -123,14 +124,22 @@ export function buildStatusReport(sc: StatusContext): StatusReport {
     },
     signed_in_as: sc.identity?.email ?? null,
     settings: [
-      { name: 'CANVAS_API_URL', required: true, present: config.canvasApiUrl !== null },
-      { name: 'CANVAS_API_TOKEN', required: true, present: config.hasCanvasToken },
+      ...(config.connectionsConfigured ? [{ name: 'CANVAS_CONNECTIONS', required: true, present: true }] : [
+        { name: 'CANVAS_API_URL', required: true, present: config.canvasApiUrl !== null },
+        { name: 'CANVAS_API_TOKEN', required: true, present: config.hasCanvasToken },
+      ]),
       { name: 'OWNER_EMAIL', required: true, present: config.ownerEmail !== null },
       { name: 'OWNER_USER_ID_SHA256', required: false, present: config.ownerUserIdSha256 !== null },
       { name: 'CONFIRMATION_SECRET', required: false, present: config.hasConfirmationSecret },
       { name: 'PSEUDONYM_SALT', required: false, present: config.hasPseudonymSalt },
     ],
     canvas_host: canvasHost(config),
+    canvas_connections: config.canvasConnections.map((connection) => ({
+      id: connection.id, name: connection.name,
+      host: connection.origin === null ? null : new URL(connection.origin).hostname,
+      token_present: connection.hasToken, available: connection.errors.length === 0,
+      errors: [...connection.errors],
+    })),
     tools: {
       count: sc.toolSet.tools.length,
       registered: sc.toolSet.tools.map((def) => ({ name: def.name, module: def.module, effect: def.effect })),
@@ -273,9 +282,15 @@ export function renderOwnerHtml(report: StatusReport): string {
             : '<span class="muted">no (optional)</span>',
       ]),
     ),
+    '<h2>Canvas connections</h2>',
+    rows(report.canvas_connections.map((connection) => [connection.name,
+      `${code(connection.id)} · ${connection.host === null ? 'not configured' : code(connection.host)} · Token present: ${yesNo(connection.token_present)} · ${connection.available ? '<span class="ok">configured</span>' : '<span class="bad">unavailable</span>'}` +
+      (connection.errors.length ? `<p>${connection.errors.map(escapeHtml).join('<br>')}</p>` : '') +
+      `<form method="post" action="/api/status/check?canvas_instance=${escapeHtml(encodeURIComponent(connection.id))}"><button type="submit">Check this connection</button></form>`,
+    ])),
     '<h2>Canvas check</h2>',
-    '<form method="post" action="/api/status/check"><button type="submit">Check the Canvas token</button></form>',
-    '<p class="muted">Calls <code>GET /users/self</code> once and shows only whether it worked and the HTTP status.</p>',
+    '<form method="post" action="/api/status/check"><button type="submit">Check all Canvas connections</button></form>',
+    '<p class="muted">Calls <code>GET /users/self</code> for each selected connection and shows only whether it worked and the HTTP status.</p>',
     '<h2>Write policy</h2>',
     rows([
       [
@@ -361,6 +376,38 @@ export async function statusCheckResponse(sc: StatusContext): Promise<Response> 
   if (!isOwnerView(sc)) {
     sc.log.security('status_check_denied', { reason: 'not_owner' });
     return jsonResponse({ ok: false, error: 'Forbidden' }, 403);
+  }
+  const selector = new URL(sc.request.url).searchParams.get('canvas_instance');
+  if (sc.config.connectionsConfigured || selector !== null) {
+    const connections = selector === null ? sc.config.canvasConnections
+      : sc.config.canvasConnections.filter((connection) => connection.id === selector);
+    if (connections.length === 0) return jsonResponse({ ok: false, status: null, reason: 'not_configured_or_unknown_connection' });
+    const now = sc.now ?? Date.now;
+    const deadline = now() + Math.min(CHECK_DEADLINE_MS, sc.config.toolDeadlineMs);
+    const meter = new SubrequestMeter(Math.min(sc.config.requestBudget, CHECK_BUDGET * connections.length));
+    const checks: Array<{ id: string; name: string; ok: boolean; status: number | null; reason?: string }> = [];
+    for (const connection of connections) {
+      const check = { id: connection.id, name: connection.name, ok: false, status: null as number | null };
+      if (meter.remaining === 0 || now() >= deadline) {
+        checks.push({ ...check, reason: 'budget_or_deadline' });
+        continue;
+      }
+      try {
+        const resolved = await sc.credentials.resolve(sc.identity, connection.id);
+        if (!resolved.ok) { checks.push({ ...check, reason: resolved.reason }); continue; }
+        const client = sc.createClient({ credential: resolved.credential, config: sc.config,
+          meter: new SubrequestMeter(CHECK_BUDGET, meter), deadline, log: sc.log, allowRaw: false,
+          pseudonymSalt: sc.pseudonymSalt,
+          ...(sc.fetchImpl !== undefined && { fetchImpl: sc.fetchImpl }),
+          ...(sc.now !== undefined && { now: sc.now }),
+        });
+        const result = await client.request('get', canvasPath`/users/self`);
+        checks.push({ ...check, ok: !isFailure(result), status: isFailure(result) ? result.status ?? null : 200 });
+      } catch {
+        checks.push({ ...check, reason: 'check_failed' });
+      }
+    }
+    return jsonResponse(redactSecretsDeep({ ok: checks.every((check) => check.ok), connections: checks }, sc.secretsToRedact));
   }
   const resolved = await sc.credentials.resolve(sc.identity);
   if (!resolved.ok) {

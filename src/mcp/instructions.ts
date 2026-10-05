@@ -14,6 +14,7 @@ const KEY_GUIDANCE =
   '(4) Results may be truncated and say so; never treat a truncated list as complete.';
 
 const FURTHER_GUIDANCE = [
+  'Use list_canvas_instances for custom Canvas connection IDs. Personal overview tools query all connections when canvas_instance is omitted. For course or assignment operations, specify canvas_instance when multiple connections exist; IDs and course codes are local to that connection. Grouped results and failures identify their connection; never treat a partial overview as complete.',
   'Start with list_courses to get course identifiers; most tools take a course ID, a course code or a ' +
     'sis_course_id: value.',
   'A result that starts with "Error" or the cross mark, or that is a JSON object with an "error" key, is a ' +

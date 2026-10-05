@@ -54,8 +54,8 @@ export function matchOwner(config: Config, identity: Identity | null): OwnerMatc
  * token. Upstream keys this hash with its confirmation secret; here the key
  * is derived from the token, so a deployment without that secret still has one.
  */
-export function callerIdFor(token: string): string {
-  return hmacSha256Hex(sha256Hex(`${CALLER_KEY_LABEL}${token}`), 'caller');
+export function callerIdFor(token: string, origin?: string): string {
+  return hmacSha256Hex(sha256Hex(`${CALLER_KEY_LABEL}${token}`), origin === undefined ? 'caller' : `caller|${origin}`);
 }
 
 export interface ProviderOptions {
@@ -63,7 +63,7 @@ export interface ProviderOptions {
 }
 
 /**
- * The v1 provider: one Canvas token, the owner's, held as a Site secret.
+ * The owner provider: Canvas tokens held as Site secrets, selected per call.
  * `resolve` is the only code that hands the token out, and it checks the
  * caller itself instead of trusting that a gate ran earlier.
  */
@@ -87,26 +87,35 @@ export function createOwnerSecretProvider(config: Config, secrets: Secrets, opti
   return Object.freeze({
     mode: 'owner' as const,
     authorize,
-    async resolve(identity: Identity | null): Promise<CredentialResult> {
+    async resolve(identity: Identity | null, connectionId?: string): Promise<CredentialResult> {
       const allowed = authorize(identity);
       if (!allowed.ok) {
         return { ok: false, reason: 'forbidden', publicMessage: allowed.publicMessage };
       }
-      // Any configuration violation withholds the token, including the ones that only block invocation.
+      const connection = config.connectionsConfigured
+        ? config.canvasConnections.find((item) => item.id === (connectionId ?? (config.canvasConnections.length === 1 ? config.canvasConnections[0]!.id : undefined)))
+        : null;
+      const token = config.connectionsConfigured
+        ? connection !== undefined && connection !== null && Object.hasOwn(secrets.canvasTokens ?? {}, connection.id)
+          ? secrets.canvasTokens![connection.id] ?? null : null
+        : secrets.canvasToken;
+      const apiBaseUrl = config.connectionsConfigured ? connection?.apiUrl ?? null : config.canvasApiUrl;
+      const origin = config.connectionsConfigured ? connection?.origin ?? null : config.canvasOrigin;
+      // Global violations withhold every token; a connection error only withholds that connection.
       if (
         config.errors.length > 0 ||
         config.diagnosticsEnabled ||
-        secrets.canvasToken === null ||
-        config.canvasApiUrl === null ||
-        config.canvasOrigin === null
+        (connection !== null && connection !== undefined && connection.errors.length > 0) ||
+        (!config.connectionsConfigured && connectionId !== undefined && connectionId !== 'default') ||
+        token === null || apiBaseUrl === null || origin === null
       ) {
         return { ok: false, reason: 'not_configured', publicMessage: NOT_CONFIGURED_PUBLIC_MESSAGE };
       }
       const credential: CanvasCredential = {
-        apiBaseUrl: config.canvasApiUrl,
-        origin: config.canvasOrigin,
-        token: secrets.canvasToken,
-        callerId: callerIdFor(secrets.canvasToken),
+        apiBaseUrl,
+        origin,
+        token,
+        callerId: callerIdFor(token, config.connectionsConfigured ? origin : undefined),
         kind: 'owner-secret',
       };
       return { ok: true, credential };

@@ -8,7 +8,7 @@ import { defineTool } from '../mcp/define-tool';
 import { COURSE_IDENTIFIER, READ_ONLY, field, record } from './read-helpers';
 
 export const listAssignments = defineTool({
-  name: 'list_assignments', title: 'List assignments', module: 'assignments', role: 'shared', effect: 'read',
+  name: 'list_assignments', title: 'List assignments', module: 'assignments', role: 'shared', effect: 'read', canvasScope: 'single',
   description: `List assignments for a specific course.
 
 Args:
@@ -38,7 +38,7 @@ Args:
 });
 
 export const getAssignmentDetails = defineTool({
-  name: 'get_assignment_details', title: 'Get assignment details', module: 'assignments', role: 'shared', effect: 'read',
+  name: 'get_assignment_details', title: 'Get assignment details', module: 'assignments', role: 'shared', effect: 'read', canvasScope: 'single',
   description: `Get detailed information about a specific assignment.
 
 Args:

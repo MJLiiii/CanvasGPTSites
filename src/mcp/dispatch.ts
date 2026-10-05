@@ -20,7 +20,7 @@ import type {
   ToolResult,
   ToolSummary,
 } from '../types';
-import { RAW_ACCESS_TOOLS, budgetLimit } from './define-tool';
+import { RAW_ACCESS_TOOLS, budgetLimit, paramsFor } from './define-tool';
 import { errorResult, mapToolOutput, textIsError, withTruncationDisclosure } from './result';
 import type { TruncationRecord } from './result';
 
@@ -195,13 +195,20 @@ type Stage = { kind: 'final'; result: ToolResult } | { kind: 'output'; output: T
 interface CallState {
   meter: SubrequestMeter | null;
   client: CanvasClient | null;
+  clients: CanvasClient[];
+}
+
+interface Invocation {
+  connectionId: string;
+  meter: SubrequestMeter;
+  deadline: number;
 }
 
 function refuse(text: string): Stage {
   return { kind: 'final', result: errorResult(text) };
 }
 
-async function produce(def: ToolDef, rawArgs: unknown, deps: DispatchDeps, state: CallState): Promise<Stage> {
+async function produce(def: ToolDef, rawArgs: unknown, deps: DispatchDeps, state: CallState, invocation?: Invocation): Promise<Stage> {
   const { config, log } = deps;
   const now = deps.now ?? Date.now;
   const isDiagnostics = def.gate?.diagnostics === true;
@@ -230,9 +237,36 @@ async function produce(def: ToolDef, rawArgs: unknown, deps: DispatchDeps, state
       return refuse(NOT_AUTHORIZED_MESSAGE);
     }
     identity = deps.identity;
+  } else if (deps.identity !== null) {
+    identity = deps.identity;
+  }
+
+  const args = coerceArgs(invocation === undefined ? paramsFor(def) : def.params, rawArgs);
+  if (!args.ok) return refuse(validationErrorText(args.error));
+  let connectionId = invocation?.connectionId;
+  if (!isDiagnostics && invocation === undefined && (def.canvasScope === 'single' || def.canvasScope === 'aggregate')) {
+    const selector = args.value.canvas_instance;
+    delete args.value.canvas_instance;
+    const connections = config.canvasConnections;
+    if (typeof selector === 'string') {
+      if (!connections.some((connection) => connection.id === selector)) {
+        return refuse('Error: Unknown canvas_instance. Use list_canvas_instances for configured connection IDs.');
+      }
+      connectionId = selector;
+    } else if (connections.length > 1) {
+      if (def.canvasScope === 'single') {
+        return refuse(`Error: canvas_instance is required. Available connection IDs: ${connections.map((connection) => connection.id).join(', ')}. Use list_canvas_instances.`);
+      }
+      return produceAggregate(def, args.value, deps, state);
+    } else {
+      connectionId = connections[0]?.id;
+    }
+  }
+
+  if (!isDiagnostics && def.canvasScope !== 'none') {
     let resolved: CredentialResult;
     try {
-      resolved = await deps.credentials.resolve(identity);
+      resolved = await deps.credentials.resolve(identity, connectionId);
     } catch (error) {
       log.error('credential_resolve_failed', { tool: def.name, error_name: describeThrown(error, []).name });
       return refuse(CREDENTIALS_UNAVAILABLE_MESSAGE);
@@ -242,19 +276,11 @@ async function produce(def: ToolDef, rawArgs: unknown, deps: DispatchDeps, state
       return refuse(asErrorText(resolved.publicMessage, CREDENTIALS_UNAVAILABLE_MESSAGE));
     }
     credential = resolved.credential;
-  } else if (deps.identity !== null) {
-    identity = deps.identity;
   }
 
-  const args = coerceArgs(def.params, rawArgs);
-  if (!args.ok) {
-    // Exactly upstream's validate_params: the message as a JSON text, flagged as an error.
-    return refuse(validationErrorText(args.error));
-  }
-
-  const meter = new SubrequestMeter(Math.min(budgetLimit(def), config.requestBudget));
+  const meter = invocation?.meter ?? new SubrequestMeter(Math.min(budgetLimit(def), config.requestBudget));
   state.meter = meter;
-  const deadline = now() + config.toolDeadlineMs;
+  const deadline = invocation?.deadline ?? now() + config.toolDeadlineMs;
 
   const shared = {
     requestId: deps.requestId,
@@ -311,7 +337,59 @@ async function produce(def: ToolDef, rawArgs: unknown, deps: DispatchDeps, state
     log.error('tool_error', { tool: def.name, error_name: 'InvalidToolOutput' });
     return refuse('Error: the tool returned no usable output.');
   }
+  if (invocation === undefined && config.connectionsConfigured && connectionId !== undefined) {
+    const connection = config.canvasConnections.find((item) => item.id === connectionId)!;
+    const label = `${connection.name} (${connection.id})`;
+    if (typeof output === 'string') output = textIsError(output) ? `Error: ${label}\n${output}` : `Canvas: ${label}\n\n${output}`;
+    else output = { canvas_instance: connection.id, connection_name: connection.name, ...output };
+  }
   return { kind: 'output', output };
+}
+
+async function produceAggregate(def: ToolDef, args: unknown, deps: DispatchDeps, state: CallState): Promise<Stage> {
+  const now = deps.now ?? Date.now;
+  const connections = deps.config.canvasConnections;
+  const meter = new SubrequestMeter(Math.min(deps.config.requestBudget, budgetLimit(def) * connections.length));
+  const deadline = now() + deps.config.toolDeadlineMs;
+  state.meter = meter;
+  const groups: string[] = [];
+  const incomplete: string[] = [];
+  let succeeded = 0;
+  for (const connection of connections) {
+    const label = `${connection.name} (${connection.id})`;
+    if (now() >= deadline || meter.remaining === 0 || connection.errors.length > 0) {
+      const reason = connection.errors.length > 0 ? 'connection is not configured correctly'
+        : now() >= deadline ? 'tool deadline reached' : 'request budget exhausted';
+      incomplete.push(connection.id);
+      groups.push(`Canvas: ${label}\nError: ${reason}. Query this connection separately with canvas_instance.`);
+      continue;
+    }
+    const childMeter = new SubrequestMeter(budgetLimit(def), meter);
+    const child: CallState = { meter: null, client: null, clients: [] };
+    let stage: Stage;
+    try {
+      stage = await produce(def, args, deps, child, { connectionId: connection.id, meter: childMeter, deadline });
+    } catch (error) {
+      deps.log.error('connection_tool_failed', { tool: def.name, connection_id: connection.id,
+        error_name: describeThrown(error, deps.secretsToRedact).name });
+      stage = refuse('Error: This Canvas connection could not be queried.');
+    } finally {
+      childMeter.release();
+    }
+    if (child.client !== null) state.clients.push(child.client);
+    const failed = stage.kind === 'final' ? stage.result.isError === true
+      : typeof stage.output === 'string' ? textIsError(stage.output) : Object.hasOwn(stage.output, 'error');
+    const truncated = anyTruncation(child.client);
+    if (failed || truncated) incomplete.push(connection.id);
+    if (!failed) succeeded++;
+    const output = stage.kind === 'final' ? stage.result.content.map((item) => item.text).join('\n')
+      : withTruncationDisclosure(stage.output, undisclosed(child.client));
+    groups.push(`Canvas: ${label}\n\n${typeof output === 'string' ? output : JSON.stringify(output)}`);
+  }
+  const summary = succeeded === 0 ? 'Error: All Canvas connections failed or could not be queried.\n'
+    : incomplete.length > 0 ? `Partial Canvas overview. Incomplete connections: ${incomplete.join(', ')}. Query them separately with canvas_instance.\n`
+      : '';
+  return { kind: 'output', output: summary + groups.join('\n\n') };
 }
 
 /**
@@ -329,7 +407,7 @@ export async function runTool(def: ToolDef, rawArgs: unknown, dispatchDeps: Disp
   const startedAt = now();
   const secrets = deps.secretsToRedact;
   const seen: Redaction = { count: 0 };
-  const state: CallState = { meter: null, client: null };
+  const state: CallState = { meter: null, client: null, clients: [] };
   let result: ToolResult;
   let cut = false;
 
@@ -338,7 +416,7 @@ export async function runTool(def: ToolDef, rawArgs: unknown, dispatchDeps: Disp
     if (stage.kind === 'final') {
       result = stage.result;
     } else {
-      let output = withTruncationDisclosure(stage.output, undisclosed(state.client));
+      let output = withTruncationDisclosure(stage.output, [state.client, ...state.clients].flatMap(undisclosed));
       // Redacted before the size limit as well as after: a secret cut in half
       // by truncation would no longer match and its first half would get out.
       if (typeof output === 'string') {
@@ -374,7 +452,7 @@ export async function runTool(def: ToolDef, rawArgs: unknown, dispatchDeps: Disp
     canvas_requests: counts.canvas,
     d1_calls: counts.d1,
     r2_calls: counts.r2,
-    truncated: cut || anyTruncation(state.client),
+    truncated: cut || [state.client, ...state.clients].some(anyTruncation),
   });
   return result;
 }

@@ -161,7 +161,7 @@ describe('GET /: the owner', () => {
 
   it('lists registered tools and the reason each other tool is not registered', async () => {
     const normal = await (await harness().get('/', OWNER_HEADERS)).text();
-    expect(normal).toContain('Registered tools (11)');
+    expect(normal).toContain('Registered tools (12)');
     expect(normal).toContain('<code>list_courses</code>');
     expect(normal).toContain('<tr><th>hello</th><td>diagnostics tools need DIAGNOSTICS_ENABLED</td></tr>');
 
@@ -278,6 +278,7 @@ describe('status HTML', () => {
       signed_in_as: x,
       settings: [{ name: x, required: true, present: false }],
       canvas_host: x,
+      canvas_connections: [{ id: x, name: x, host: x, token_present: false, available: false, errors: [x] }],
       tools: { count: 1, registered: [{ name: x, module: x, effect: x }], not_registered: [{ name: x, reason: x }] },
       write_allowlist: { state: 'tools', tools: [x] },
       student_write_tools: [x],
@@ -321,7 +322,7 @@ describe('GET /api/status', () => {
     expect(body.status.bindings).toEqual({ d1: true, r2: false });
     expect(body.status.config_errors).toEqual([]);
     expect(body.status.limits).toMatchObject({ request_budget: 40, max_pages: 10, tool_deadline_ms: 25000, max_request_bytes: 1048576 });
-    expect(body.status.tools.count).toBe(11);
+    expect(body.status.tools.count).toBe(12);
     expect(body.status.tools.not_registered.map((tool) => tool.name)).toEqual(['hello', 'sites_diagnostics']);
   });
 

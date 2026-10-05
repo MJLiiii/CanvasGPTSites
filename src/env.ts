@@ -1,7 +1,8 @@
 // Ports canvas-mcp src/canvas_mcp/core/config.py (reshaped: a pure parse of the Worker env; fail-closed rules are recorded as data).
 import { isValidTimeZone } from './core/dates';
-import { TOOL_EFFECTS, describeEntries, resolveToolPolicy, splitEntries } from './core/tool-policy';
-import type { AuthMode, Config, ConfigError, Env, LogLevel, McpBackend, Role, Secrets } from './types';
+import { redactSecretsDeep } from './core/logging';
+import { TOOL_EFFECTS, PORT_TOOL_EFFECTS, describeEntries, resolveToolPolicy, splitEntries } from './core/tool-policy';
+import type { AuthMode, CanvasConnection, Config, ConfigError, Env, LogLevel, McpBackend, Role, Secrets } from './types';
 
 /**
  * Canonical names of the student write tools an owner may enable through
@@ -28,6 +29,59 @@ const MAX_RUNTIME_MS = 300_000;
 // ---------------------------------------------------------------------------
 // Reading
 // ---------------------------------------------------------------------------
+
+function connectionEntries(env: Env): unknown[] | null {
+  if (typeof env.CANVAS_CONNECTIONS !== 'string') return null;
+  try {
+    const parsed: unknown = JSON.parse(env.CANVAS_CONNECTIONS);
+    return Array.isArray(parsed) && parsed.length > 0 ? parsed : null;
+  } catch {
+    // JSON parser messages can quote credentials. Never expose them.
+    return null;
+  }
+}
+
+function connectionRecord(value: unknown): Record<string, unknown> | null {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown> : null;
+}
+
+function parseConnections(env: Env, errors: ConfigError[]): CanvasConnection[] {
+  const entries = connectionEntries(env);
+  const invalid = (): void => {
+    errors.push({ code: 'canvas_connections_invalid', blocks: 'invocation',
+      message: 'CANVAS_CONNECTIONS must be a non-empty JSON array with unique IDs. IDs must start with a lowercase letter and use lowercase letters, digits, underscores or hyphens (maximum 64 characters).' });
+  };
+  if (entries === null) { invalid(); return []; }
+  const ids = new Set<string>();
+  const connections: CanvasConnection[] = [];
+  for (const entry of entries) {
+    const row = connectionRecord(entry);
+    if (row === null || typeof row.id !== 'string' || !/^[a-z][a-z0-9_-]{0,63}$/.test(row.id) || ids.has(row.id)) {
+      invalid(); return [];
+    }
+    ids.add(row.id);
+    const issues: string[] = [];
+    const name = typeof row.name === 'string' ? row.name.trim() : '';
+    if (name === '' || /[\u0000-\u001f\u007f]/.test(name)) issues.push('A non-empty display name without control characters is required.');
+    const url = normalizeCanvasUrl(typeof row.url === 'string' ? row.url : '');
+    if (url.error !== null || url.apiUrl === null) issues.push('A valid HTTPS Canvas URL is required.');
+    const token = typeof row.token === 'string' ? row.token.trim() : '';
+    const hasToken = token !== '' && isSendableToken(token);
+    if (!hasToken) issues.push('A valid Canvas token is required.');
+    connections.push({ id: row.id, name: name || row.id, apiUrl: url.apiUrl, origin: url.origin, hasToken, errors: issues });
+  }
+  const cleaned = redactSecretsDeep(connections, secretValuesForRedaction(env));
+  for (let i = 0; i < connections.length; i++) {
+    if (cleaned[i]!.id !== connections[i]!.id) { invalid(); return []; }
+    if (cleaned[i]!.apiUrl !== connections[i]!.apiUrl || cleaned[i]!.origin !== connections[i]!.origin) {
+      cleaned[i]!.apiUrl = null;
+      cleaned[i]!.origin = null;
+      cleaned[i]!.errors.push('Canvas URL must not contain credentials.');
+    }
+  }
+  return cleaned;
+}
 
 /** A non-secret variable as text. Numbers and booleans are accepted because a JSON-typed variable arrives that way. */
 function readVar(env: Env, name: string): string | undefined {
@@ -346,7 +400,15 @@ export function parseSecrets(env: Env): Secrets {
   const token = readSecret(env, 'CANVAS_API_TOKEN');
   const confirmation = readSecret(env, 'CONFIRMATION_SECRET');
   return {
-    canvasToken: token !== null && isSendableToken(token) ? token : null,
+    canvasToken: env.CANVAS_CONNECTIONS === undefined && token !== null && isSendableToken(token) ? token : null,
+    ...(env.CANVAS_CONNECTIONS !== undefined && {
+      canvasTokens: Object.fromEntries((connectionEntries(env) ?? []).flatMap((entry) => {
+        const row = connectionRecord(entry);
+        if (row === null || typeof row.id !== 'string') return [];
+        const value = typeof row.token === 'string' ? row.token.trim() : '';
+        return [[row.id, value !== '' && isSendableToken(value) ? value : null]];
+      })),
+    }),
     confirmationSecret:
       confirmation !== null && confirmation.length >= MIN_CONFIRMATION_SECRET_LENGTH ? confirmation : null,
     pseudonymSalt: readSecret(env, 'PSEUDONYM_SALT'),
@@ -364,6 +426,15 @@ export function secretValuesForRedaction(env: Env): string[] {
     const value = readSecret(env, name);
     if (value !== null && value.length >= 8) {
       values.push(value);
+    }
+  }
+  // Include rejected and unused connection tokens too, and protect the complete JSON.
+  if (typeof env.CANVAS_CONNECTIONS === 'string' && env.CANVAS_CONNECTIONS !== '') values.push(env.CANVAS_CONNECTIONS);
+  for (const entry of connectionEntries(env) ?? []) {
+    const row = connectionRecord(entry);
+    if (row !== null && typeof row.token === 'string' && row.token !== '') {
+      values.push(row.token);
+      if (row.token.trim() !== '') values.push(row.token.trim());
     }
   }
   return values;
@@ -430,13 +501,15 @@ export function parseConfig(env: Env): Config {
   }
 
   // --- Canvas endpoint and credentials ---
-  const rawUrl = readVar(env, 'CANVAS_API_URL') ?? '';
+  const connectionsConfigured = env.CANVAS_CONNECTIONS !== undefined;
+  const canvasConnections = connectionsConfigured ? parseConnections(env, errors) : [];
+  const rawUrl = connectionsConfigured ? '' : readVar(env, 'CANVAS_API_URL') ?? '';
   const canvasUrl = normalizeCanvasUrl(rawUrl);
   if (canvasUrl.error !== null) {
     errors.push(canvasUrl.error);
   }
 
-  const rawToken = readSecret(env, 'CANVAS_API_TOKEN');
+  const rawToken = connectionsConfigured ? null : readSecret(env, 'CANVAS_API_TOKEN');
   const tokenUsable = rawToken !== null && isSendableToken(rawToken);
   if (rawToken !== null && !tokenUsable) {
     errors.push({
@@ -509,7 +582,7 @@ export function parseConfig(env: Env): Config {
   const studentWriteTools = requestedStudentWrites.filter((name) => STUDENT_WRITE_TOOL_NAMES.has(name)).sort();
 
   const disabledTools = unique(splitList(readVar(env, 'DISABLED_TOOLS'))).sort();
-  const unknownDisabled = disabledTools.filter((name) => !Object.hasOwn(TOOL_EFFECTS, name));
+  const unknownDisabled = disabledTools.filter((name) => !Object.hasOwn(TOOL_EFFECTS, name) && !Object.hasOwn(PORT_TOOL_EFFECTS, name));
   if (unknownDisabled.length > 0) {
     warnings.push(`DISABLED_TOOLS names tools that are not in the tool table: ${describeEntries(unknownDisabled)}`);
   }
@@ -545,14 +618,14 @@ export function parseConfig(env: Env): Config {
   const diagnosticsEnabled = boolVar(env, 'DIAGNOSTICS_ENABLED', false, warnings);
 
   // --- Fail-closed combinations ---
-  if (rawUrl.trim() === '') {
+  if (!connectionsConfigured && rawUrl.trim() === '') {
     errors.push({
       code: 'canvas_url_missing',
       message: 'CANVAS_API_URL environment variable is required',
       blocks: 'invocation',
     });
   }
-  if (rawToken === null) {
+  if (!connectionsConfigured && rawToken === null) {
     errors.push({
       code: 'canvas_token_missing',
       message: 'CANVAS_API_TOKEN environment variable is required',
@@ -568,18 +641,24 @@ export function parseConfig(env: Env): Config {
   }
   // Presence is judged on the raw values: a token or secret this parser
   // rejects is still a credential sitting on the deployment.
-  if (diagnosticsEnabled && (rawToken !== null || rawConfirmation !== null)) {
+  if (diagnosticsEnabled && (readSecret(env, 'CANVAS_API_TOKEN') !== null || rawConfirmation !== null || connectionsConfigured)) {
     errors.push({
       code: 'diagnostics_with_credentials',
       message:
         'DIAGNOSTICS_ENABLED=true is only allowed on a deployment that holds no credentials; ' +
-        'unset CANVAS_API_TOKEN and CONFIRMATION_SECRET, or turn diagnostics off',
+        'unset CANVAS_API_TOKEN, CANVAS_CONNECTIONS and CONFIRMATION_SECRET, or turn diagnostics off',
       blocks: 'request',
     });
   }
 
   return {
     authMode,
+    connectionsConfigured,
+    canvasConnections: connectionsConfigured ? canvasConnections : [{
+      id: 'default', name: readTrimmed(env, 'INSTITUTION_NAME') ?? 'Canvas',
+      apiUrl: canvasUrl.apiUrl, origin: canvasUrl.origin, hasToken: tokenUsable,
+      errors: canvasUrl.apiUrl !== null && tokenUsable ? [] : ['Canvas credentials are unavailable.'],
+    }],
     canvasApiUrl: canvasUrl.apiUrl,
     canvasOrigin: canvasUrl.origin,
     hasCanvasToken: tokenUsable,

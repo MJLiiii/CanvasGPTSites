@@ -13,7 +13,7 @@ import { FAKE_TOKEN, TEST_START, createFakeCanvas, json, testConfig } from '../h
 
 const ORIGIN = 'https://canvas.example.edu';
 const OWNER: Identity = { key: 'id:owner', userId: 'owner', email: 'owner@example.edu', fullName: null, source: 'sites-gateway' };
-const BUSINESS = ALL_TOOLS.filter((tool) => !tool.gate?.diagnostics);
+const BUSINESS = ALL_TOOLS.filter((tool) => !tool.gate?.diagnostics && tool.module !== 'connections');
 const FIXTURE = JSON.parse(readFileSync(decodeURIComponent(new URL('../fixtures/read-tool-parity.json', import.meta.url).pathname), 'utf8')) as {
   descriptions: Record<string, string>;
   cases: Array<{ name: string; args: Record<string, unknown>; role: 'student' | 'educator'; output: string;
@@ -143,7 +143,7 @@ describe.each(['sdk', 'native'])('business reads through app.fetch (%s)', (backe
     expect(denied.status).toBe(403);
     expect(fake.calls).toHaveLength(0);
     const listed = await (await app.fetch(post('tools/list'), env)).json() as { result: { tools: Array<{ name: string }> } };
-    expect(listed.result.tools).toHaveLength(11);
+    expect(listed.result.tools).toHaveLength(12);
     expect(listed.result.tools.some((tool) => tool.name === 'hello')).toBe(false);
     const result = await (await app.fetch(post('tools/call', { name: 'list_courses', arguments: {} }), env)).json() as { result: ToolResult };
     expect(result.result.isError).toBe(false);

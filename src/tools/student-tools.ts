@@ -7,7 +7,7 @@ import { defineTool } from '../mcp/define-tool';
 import { READ_ONLY, field, oneDecimal, record, records } from './read-helpers';
 
 export const getMyCourseGrades = defineTool({
-  name: 'get_my_course_grades', title: 'Get my course grades', module: 'student_tools', role: 'student', effect: 'read',
+  name: 'get_my_course_grades', title: 'Get my course grades', module: 'student_tools', role: 'student', effect: 'read', canvasScope: 'aggregate',
   description: 'Get your current grades across all enrolled courses.',
   params: {}, annotations: READ_ONLY, budget: { tier: 'S' }, fencing: 'safe',
   handler: async (_args, ctx) => {
@@ -34,7 +34,7 @@ export const getMyCourseGrades = defineTool({
 });
 
 export const getMyTodoItems = defineTool({
-  name: 'get_my_todo_items', title: 'Get my TODO items', module: 'student_tools', role: 'student', effect: 'read',
+  name: 'get_my_todo_items', title: 'Get my TODO items', module: 'student_tools', role: 'student', effect: 'read', canvasScope: 'aggregate',
   description: 'Get your Canvas TODO list.', params: {}, annotations: READ_ONLY, budget: { tier: 'S' }, fencing: 'fenced',
   handler: async (_args, ctx) => {
     const todos = await ctx.canvas.fetchAll<Record<string, unknown>>(canvasPath`/users/self/todo`, { per_page: 100 }, { label: 'TODO items' });
@@ -55,7 +55,7 @@ export const getMyTodoItems = defineTool({
 });
 
 export const getMyUpcomingAssignments = defineTool({
-  name: 'get_my_upcoming_assignments', title: 'Get my upcoming assignments', module: 'student_tools', role: 'student', effect: 'read',
+  name: 'get_my_upcoming_assignments', title: 'Get my upcoming assignments', module: 'student_tools', role: 'student', effect: 'read', canvasScope: 'aggregate',
   description: `Get your upcoming assignments across all courses.
 
 Args:

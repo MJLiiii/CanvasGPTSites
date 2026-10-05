@@ -28,7 +28,7 @@ import {
   unsupportedMediaTypeResponse,
 } from './backend';
 import type { McpBackendHandler, McpRequestContext } from './backend';
-import { advertisedAnnotations, inputSchemaFor } from './define-tool';
+import { advertisedAnnotations, advertisedDescription, inputSchemaFor } from './define-tool';
 import { runTool } from './dispatch';
 import { SERVER_INSTRUCTIONS } from './instructions';
 
@@ -44,7 +44,7 @@ type ToolArgs = Record<string, unknown>;
  * reports problems in upstream's own `{"error": ...}` wording, which a
  * rejecting validator here would replace with the SDK's text.
  */
-export function standardSchemaFor(def: Pick<ToolDef, 'params'>): StandardSchemaWithJSON<ToolArgs, ToolArgs> {
+export function standardSchemaFor(def: Pick<ToolDef, 'params' | 'canvasScope'>): StandardSchemaWithJSON<ToolArgs, ToolArgs> {
   const jsonSchema = inputSchemaFor(def);
   return {
     '~standard': {
@@ -76,7 +76,7 @@ function buildServer(rc: McpRequestContext, era: 'legacy' | 'modern'): McpServer
       def.name,
       {
         title: def.title,
-        description: def.description,
+        description: advertisedDescription(def),
         inputSchema: standardSchemaFor(def),
         annotations: advertisedAnnotations(def),
       },

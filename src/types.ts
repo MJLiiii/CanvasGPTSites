@@ -33,10 +33,22 @@ export interface ConfigError {
   blocks: 'request' | 'invocation';
 }
 
+/** Validated public metadata. Tokens are held separately in auth/. */
+export interface CanvasConnection {
+  id: string;
+  name: string;
+  apiUrl: string | null;
+  origin: string | null;
+  hasToken: boolean;
+  errors: string[];
+}
+
 /** Parsed, validated, secret-free configuration. Safe to hand to any module. */
 export interface Config {
   authMode: AuthMode;
-  /** Normalized `https://host/api/v1`, or null when unset/invalid. */
+  connectionsConfigured: boolean;
+  canvasConnections: CanvasConnection[];
+  /** Legacy single-connection URL; null when CANVAS_CONNECTIONS is configured. */
   canvasApiUrl: string | null;
   canvasOrigin: string | null;
   hasCanvasToken: boolean;
@@ -95,6 +107,8 @@ export interface Config {
  */
 export interface Secrets {
   canvasToken: string | null;
+  /** Present only for CANVAS_CONNECTIONS; never handed to tools. */
+  canvasTokens?: Record<string, string | null>;
   confirmationSecret: string | null;
   pseudonymSalt: string | null;
 }
@@ -141,7 +155,7 @@ export interface CredentialProvider {
   readonly mode: AuthMode;
   authorize(identity: Identity | null): AuthorizeResult;
   /** Re-runs `authorize` itself; the only place a token is released. */
-  resolve(identity: Identity | null): Promise<CredentialResult>;
+  resolve(identity: Identity | null, connectionId?: string): Promise<CredentialResult>;
 }
 
 // ---------------------------------------------------------------------------
@@ -350,6 +364,8 @@ export interface ToolDef<P extends ParamSpecs = ParamSpecs> {
   module: string;
   role: ToolRole;
   effect: Effect;
+  /** Unset for legacy/internal tools; configuration discovery never needs a client. */
+  canvasScope?: 'single' | 'aggregate' | 'none';
   gate?: ToolGate;
   params: P;
   annotations: ToolAnnotations;

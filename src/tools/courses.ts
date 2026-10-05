@@ -10,7 +10,7 @@ import type { Params } from '../types';
 import { COURSE_IDENTIFIER, READ_ONLY, capCharacters, field, ownRoles, record } from './read-helpers';
 
 export const listCourses = defineTool({
-  name: 'list_courses', title: 'List courses', module: 'courses', role: 'shared', effect: 'read',
+  name: 'list_courses', title: 'List courses', module: 'courses', role: 'shared', effect: 'read', canvasScope: 'aggregate',
   description: `List courses for the authenticated user.
 
 Args:
@@ -40,7 +40,7 @@ Args:
 });
 
 export const getCourseDetails = defineTool({
-  name: 'get_course_details', title: 'Get course details', module: 'courses', role: 'shared', effect: 'read',
+  name: 'get_course_details', title: 'Get course details', module: 'courses', role: 'shared', effect: 'read', canvasScope: 'single',
   description: `Get detailed information about a specific course.
 
 Args:
@@ -66,7 +66,7 @@ Args:
 });
 
 export const getSyllabus = defineTool({
-  name: 'get_syllabus', title: 'Get syllabus', module: 'courses', role: 'shared', effect: 'read',
+  name: 'get_syllabus', title: 'Get syllabus', module: 'courses', role: 'shared', effect: 'read', canvasScope: 'single',
   description: `Get the complete Canvas Syllabus tab content for a course, untruncated.
 
 Unlike get_course_content_overview (which returns only a ~1000-char

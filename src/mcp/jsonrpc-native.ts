@@ -16,7 +16,7 @@ import {
   unsupportedMediaTypeResponse,
 } from './backend';
 import type { JsonRpcId, McpBackendHandler, McpRequestContext } from './backend';
-import { advertisedAnnotations, inputSchemaFor } from './define-tool';
+import { advertisedAnnotations, advertisedDescription, inputSchemaFor } from './define-tool';
 import { runTool } from './dispatch';
 import { SERVER_INSTRUCTIONS } from './instructions';
 
@@ -69,7 +69,7 @@ export function describeTool(def: ToolDef): Record<string, unknown> {
   return {
     name: def.name,
     title: def.title,
-    description: def.description,
+    description: advertisedDescription(def),
     inputSchema: inputSchemaFor(def),
     annotations: advertisedAnnotations(def),
   };

@@ -111,9 +111,12 @@ const MIN_REDACTED_FRAGMENT_LENGTH = 8;
  * way before a message names their entries, so a secret pasted into one of
  * them would otherwise come back out in pieces that no longer match it.
  */
-function withFragments(secretValues: readonly string[]): string[] {
+function withFragments(secretValues: readonly string[], structuredSecret?: string): string[] {
   const out = new Set<string>(secretValues);
   for (const secret of secretValues) {
+    // A connection JSON includes public names and URLs. Split its tokens,
+    // not the container, or ordinary display-name words would be redacted.
+    if (secret === structuredSecret) continue;
     for (const piece of secret.split(/[\s,]+/)) {
       if (piece.length >= MIN_REDACTED_FRAGMENT_LENGTH) out.add(piece);
     }
@@ -306,7 +309,7 @@ async function serve(request: Request, env: Env, ctx: AppExecutionContext | unde
   const startedAt = now();
   const config = parseConfig(env);
   const secretsToRedact = secretValuesForRedaction(env);
-  const configRedactions = withFragments(secretsToRedact);
+  const configRedactions = withFragments(secretsToRedact, typeof env.CANVAS_CONNECTIONS === 'string' ? env.CANVAS_CONNECTIONS : undefined);
   const resolution = resolveIdentity(request.headers);
   const requestId = newRequestId();
   const log = createLogger({

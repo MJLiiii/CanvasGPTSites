@@ -7,9 +7,11 @@ import { getCourseDetails, getSyllabus, listCourses } from './courses';
 import { getMyEnrollments, getMyProfile } from './self-identity';
 import { getMyCourseGrades, getMyTodoItems, getMyUpcomingAssignments } from './student-tools';
 import { getMySubmission } from './student-write';
+import { listCanvasInstances } from './connections';
 
 export const ALL_TOOLS: ReadonlyArray<ToolDef> = Object.freeze([
   hello, sitesDiagnostics, listCourses, getCourseDetails, getSyllabus,
   getMyProfile, getMyEnrollments, getMyCourseGrades, getMyTodoItems, getMyUpcomingAssignments,
   getMySubmission, listAssignments, getAssignmentDetails,
+  listCanvasInstances,
 ]);

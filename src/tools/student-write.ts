@@ -8,7 +8,7 @@ import { defineTool } from '../mcp/define-tool';
 import { COURSE_IDENTIFIER, READ_ONLY, field, record, records } from './read-helpers';
 
 export const getMySubmission = defineTool({
-  name: 'get_my_submission', title: 'Get my submission', module: 'student_write', role: 'student', effect: 'read',
+  name: 'get_my_submission', title: 'Get my submission', module: 'student_write', role: 'student', effect: 'read', canvasScope: 'single',
   description: `Get your own submission for an assignment, including attempts used.
 
 Args:

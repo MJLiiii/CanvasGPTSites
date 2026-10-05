@@ -140,6 +140,9 @@ export const TOOL_EFFECTS: Readonly<Record<string, Effect>> = Object.freeze(
   Object.assign(Object.create(null) as Record<string, Effect>, EFFECT_TABLE),
 );
 
+/** Port-specific tools, kept separate so the upstream manifest stays auditable. */
+export const PORT_TOOL_EFFECTS: Readonly<Record<string, Effect>> = Object.freeze({ list_canvas_instances: 'read' });
+
 /** Names of every tool that is not a read. */
 export const SIDE_EFFECT_TOOLS: ReadonlySet<string> = new Set(
   Object.keys(TOOL_EFFECTS).filter((name) => TOOL_EFFECTS[name] !== 'read'),
@@ -220,11 +223,11 @@ export function resolveToolPolicy(raw: string | null): ToolPolicyResult {
     return { ok: true, allowedWrites: new Set() };
   }
 
-  const unknown = requested.filter((name) => !Object.hasOwn(TOOL_EFFECTS, name));
+  const unknown = requested.filter((name) => !Object.hasOwn(TOOL_EFFECTS, name) && !Object.hasOwn(PORT_TOOL_EFFECTS, name));
   if (unknown.length > 0) {
     return { ok: false, error: `${ALLOWLIST_ENV} names unknown tools: ${describeEntries(unknown)}` };
   }
-  const reads = requested.filter((name) => TOOL_EFFECTS[name] === 'read');
+  const reads = requested.filter((name) => TOOL_EFFECTS[name] === 'read' || (Object.hasOwn(PORT_TOOL_EFFECTS, name) && PORT_TOOL_EFFECTS[name] === 'read'));
   if (reads.length > 0) {
     return {
       ok: false,
@@ -260,6 +263,7 @@ export const READ_EFFECT_OVERRIDES: ReadonlySet<string> = new Set(['generate_pee
 
 /** The effect a tool is registered with in this port, or undefined when it is unclassified. */
 export function registeredEffect(name: string): Effect | undefined {
+  if (Object.hasOwn(PORT_TOOL_EFFECTS, name)) return PORT_TOOL_EFFECTS[name];
   if (!Object.hasOwn(TOOL_EFFECTS, name)) return undefined;
   return READ_EFFECT_OVERRIDES.has(name) ? 'read' : TOOL_EFFECTS[name];
 }

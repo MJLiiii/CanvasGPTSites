@@ -16,12 +16,14 @@ function isCount(n: number): boolean {
  */
 export class SubrequestMeter implements BudgetView {
   readonly #limit: number;
+  readonly #parent: SubrequestMeter | undefined;
   #used = 0;
   #reserved = 0;
   readonly #counts: Record<SubrequestKind, number> = { canvas: 0, d1: 0, r2: 0 };
 
-  constructor(limit: number) {
+  constructor(limit: number, parent?: SubrequestMeter) {
     this.#limit = Number.isFinite(limit) && limit > 0 ? Math.floor(limit) : 0;
+    this.#parent = parent;
   }
 
   get limit(): number {
@@ -34,7 +36,7 @@ export class SubrequestMeter implements BudgetView {
 
   /** Free capacity, excluding reservations. */
   get remaining(): number {
-    return this.#limit - this.#used - this.#reserved;
+    return Math.min(this.#limit - this.#used - this.#reserved, this.#parent?.remaining ?? Infinity);
   }
 
   /** Slots set aside and not yet consumed. */
@@ -50,6 +52,7 @@ export class SubrequestMeter implements BudgetView {
   /** Consume `n` free slots (default 1). Never touches reservations. */
   take(kind: SubrequestKind, n = 1): boolean {
     if (!isCount(n) || !Object.hasOwn(this.#counts, kind) || n > this.remaining) return false;
+    if (this.#parent !== undefined && !this.#parent.take(kind, n)) return false;
     this.#used += n;
     this.#counts[kind] += n;
     return true;
@@ -58,6 +61,7 @@ export class SubrequestMeter implements BudgetView {
   /** Set aside `n` free slots for later mandatory steps (write, read-back, D1). */
   reserve(n: number): boolean {
     if (!isCount(n) || n > this.remaining) return false;
+    if (this.#parent !== undefined && !this.#parent.reserve(n)) return false;
     this.#reserved += n;
     return true;
   }
@@ -67,6 +71,15 @@ export class SubrequestMeter implements BudgetView {
     if (!isCount(n) || !Object.hasOwn(this.#counts, kind)) return false;
     const fromReserved = Math.min(n, this.#reserved);
     if (n - fromReserved > this.remaining) return false;
+    if (this.#parent !== undefined) {
+      // Only this child's reservations may be consumed; a sibling's reserved
+      // capacity must remain unavailable even for takeReserved.
+      this.#parent.release(fromReserved);
+      if (!this.#parent.take(kind, n)) {
+        this.#parent.reserve(fromReserved);
+        return false;
+      }
+    }
     this.#reserved -= fromReserved;
     this.#used += n;
     this.#counts[kind] += n;
@@ -76,6 +89,8 @@ export class SubrequestMeter implements BudgetView {
   /** Return up to `n` unused reserved slots (default: all) to free capacity. */
   release(n: number = this.#reserved): void {
     if (!isCount(n)) return;
-    this.#reserved -= Math.min(n, this.#reserved);
+    const released = Math.min(n, this.#reserved);
+    this.#parent?.release(released);
+    this.#reserved -= released;
   }
 }

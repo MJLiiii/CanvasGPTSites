@@ -151,7 +151,7 @@ export function toSummary(def: ToolDef): ToolSummary {
   return {
     name: def.name,
     title: def.title,
-    description: def.description,
+    description: advertisedDescription(def),
     module: def.module,
     role: def.role,
     effect: def.effect,
@@ -186,12 +186,36 @@ function deepFreeze<T>(value: T): T {
 // and its entries are frozen because every request is handed the same object.
 const schemaCache = new WeakMap<ParamSpecs, Record<string, unknown>>();
 
+const scopedParams = new WeakMap<ParamSpecs, ParamSpecs>();
+
+/** Transport parameter consumed by dispatch, never passed to the original handler. */
+export function paramsFor(def: Pick<ToolDef, 'params' | 'canvasScope'>): ParamSpecs {
+  if (def.canvasScope !== 'single' && def.canvasScope !== 'aggregate') return def.params;
+  let params = scopedParams.get(def.params);
+  if (params === undefined) {
+    params = Object.freeze({ ...def.params, canvas_instance: {
+      kind: 'string', optional: true,
+      description: 'Configured Canvas connection ID from list_canvas_instances. Required for a single-connection operation when multiple connections exist; omit for supported overview aggregation.',
+    } });
+    scopedParams.set(def.params, params);
+  }
+  return params;
+}
+
+export function advertisedDescription(def: ToolDef): string {
+  if (def.canvasScope !== 'single' && def.canvasScope !== 'aggregate') return def.description;
+  return def.description + '\n\ncanvas_instance: Custom connection ID from list_canvas_instances. ' +
+    (def.canvasScope === 'aggregate' ? 'Omit to query all configured connections, grouped by connection.'
+      : 'Required when multiple Canvas connections are configured.');
+}
+
 /** The JSON Schema advertised for a tool's arguments; both backends emit exactly this object. */
-export function inputSchemaFor(def: Pick<ToolDef, 'params'>): Record<string, unknown> {
-  let schema = schemaCache.get(def.params);
+export function inputSchemaFor(def: Pick<ToolDef, 'params' | 'canvasScope'>): Record<string, unknown> {
+  const params = paramsFor(def);
+  let schema = schemaCache.get(params);
   if (schema === undefined) {
-    schema = deepFreeze(buildInputSchema(def.params));
-    schemaCache.set(def.params, schema);
+    schema = deepFreeze(buildInputSchema(params));
+    schemaCache.set(params, schema);
   }
   return schema;
 }
